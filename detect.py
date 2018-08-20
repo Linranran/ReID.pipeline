@@ -147,6 +147,8 @@ if __name__ ==  '__main__':
         
     load_batch = time.time()
     
+    print("test")
+    
     batches = list(map(prep_image, imlist, [inp_dim for x in range(len(imlist))]))
     im_batches = [x[0] for x in batches]
     orig_ims = [x[1] for x in batches]
