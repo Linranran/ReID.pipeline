@@ -216,9 +216,7 @@ if __name__ ==  '__main__':
                     
 #        print(end - start)
 
-            
-
-        prediction[:,0] += i*batch_size
+        #prediction[:,0] += i*batch_size
         
     
             
@@ -233,27 +231,26 @@ if __name__ ==  '__main__':
         
 
         for im_num, image in enumerate(imlist[i*batch_size: min((i +  1)*batch_size, len(imlist))]):
-            im_id = i*batch_size + im_num
+#            im_id = i*batch_size + im_num
 #            objs = [classes[int(x[-1])] for x in output if int(x[0]) == im_id]
-            objs = [classes[int(x[-1])] for x in prediction if int(x[0]) == im_id]
+            objs = [classes[int(x[-1])] for x in prediction if int(x[0]) == im_num]
             print("{0:20s} predicted in {1:6.3f} seconds".format(image.split("/")[-1], (end - start)/batch_size))
             print("{0:20s} {1:s}".format("Objects Detected:", " ".join(objs)))
             print("----------------------------------------------------------")
-        i += 1
+#        i += 1
 
         
         if CUDA:
             torch.cuda.synchronize()
+
             
-        
+        im_dim_list = torch.index_select(im_dim_list, 0, prediction[:,0].long())
         scaling_factor = torch.min(inp_dim/im_dim_list,1)[0].view(-1,1)    
         prediction[:,[1,3]] -= (inp_dim - scaling_factor*im_dim_list[:,0].view(-1,1))/2
         prediction[:,[2,4]] -= (inp_dim - scaling_factor*im_dim_list[:,1].view(-1,1))/2    
         prediction[:,1:5] /= scaling_factor
         
-        import pdb
-        pdb.set_trace()
-        
+
         
         for idx in range(prediction.shape[0]):
             prediction[idx, [1,3]] = torch.clamp(prediction[idx, [1,3]], 0.0, im_dim_list[idx,0])
@@ -276,14 +273,21 @@ if __name__ ==  '__main__':
             return img
         
         list(map(lambda x: write(x, orig_ims), prediction))
-        det_names = pd.Series(imlist).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))
+        
+#        import pdb
+#        pdb.set_trace()
+        
+        det_names = pd.Series(im_batches[ibatch]).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))
         list(map(cv2.imwrite, det_names, orig_ims))
     
-    try:
-        output
-    except NameError:
-        print("No detections were made")
-        exit()
+        i += 1
+    
+    
+#    try:
+#        prediction
+#    except NameError:
+#        print("No detections were made")
+#        exit()
         
         
         
