@@ -252,8 +252,8 @@ if __name__ ==  '__main__':
         output
     except NameError:
         print("No detections were made")
-        exit()
-        
+        exit()   
+    
     im_dim_list = torch.index_select(im_dim_list, 0, output[:,0].long())
     
     scaling_factor = torch.min(inp_dim/im_dim_list,1)[0].view(-1,1)
@@ -265,6 +265,7 @@ if __name__ ==  '__main__':
     
     
     output[:,1:5] /= scaling_factor
+    
     
     for i in range(output.shape[0]):
         output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, im_dim_list[i,0])
