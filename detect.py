@@ -238,7 +238,6 @@ if __name__ ==  '__main__':
             im_id = i*batch_size + im_num
 #            objs = [classes[int(x[-1])] for x in output if int(x[0]) == im_id]
             objs = [classes[int(x[-1])] for x in prediction if int(x[0]) == im_id]
-            print("{0:20s} predicted in {1:6.3f} seconds".format(image.split("/")[-1], 
             print("{0:20s} predicted in {1:6.3f} seconds".format(image.split("/")[-1], (end - start)/batch_size))
             print("{0:20s} {1:s}".format("Objects Detected:", " ".join(objs)))
             print("----------------------------------------------------------")
