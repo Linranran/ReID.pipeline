@@ -48,42 +48,61 @@ def arg_parse():
                         default = "1,2,3", type = str)
     
     return parser.parse_args()
+    
+    
+def measure(frame):
+    img, orig_im, dim = prep_image(frame, inp_dim)
+    im_dim = torch.FloatTensor(dim).repeat(1,2)   
+    if CUDA:
+        im_dim = im_dim.cuda()
+        img = img.cuda()
+    with torch.no_grad():   
+        output = model(img, CUDA)
+    output = write_results_person(output, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+    im_dim = im_dim.repeat(output.size(0), 1)
+    scaling_factor = torch.min(inp_dim/im_dim,1)[0].view(-1,1)
+    
+    output[:,[1,3]] -= (inp_dim - scaling_factor*im_dim[:,0].view(-1,1))/2
+    output[:,[2,4]] -= (inp_dim - scaling_factor*im_dim[:,1].view(-1,1))/2
+    
+    output[:,1:5] /= scaling_factor
+
+    for i in range(output.shape[0]):
+        output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, im_dim[i,0])
+        output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, im_dim[i,1])
+
+    return output
+
+
+args = arg_parse()
+scales = args.scales
+CUDA = torch.cuda.is_available()
+confidence = float(args.confidence)
+nms_thesh = float(args.nms_thresh)
+#Set up the neural network
+print("Loading network.....")
+model = Darknet(args.cfgfile)
+model.load_weights(args.weightsfile)
+print("Network successfully loaded")
+model.net_info["height"] = args.reso
+inp_dim = int(model.net_info["height"])
+num_classes = 80
+classes = load_classes('data/coco.names') 
+assert inp_dim % 32 == 0 
+assert inp_dim > 32
+
+#If there's a GPU availible, put the model on GPU
+if CUDA:
+    model.cuda()
+#Set the model in evaluation mode
+model.eval()
 
 if __name__ ==  '__main__':
-    args = arg_parse()
-    
-    scales = args.scales
-
     images = args.images
     batch_size = int(args.bs)
-    confidence = float(args.confidence)
-    nms_thesh = float(args.nms_thresh)
+
     start = 0
 
-    CUDA = torch.cuda.is_available()
-
-    num_classes = 80
-    classes = load_classes('data/coco.names') 
-
-    #Set up the neural network
-    print("Loading network.....")
-    model = Darknet(args.cfgfile)
-    model.load_weights(args.weightsfile)
-    print("Network successfully loaded")
-    
-    model.net_info["height"] = args.reso
-    inp_dim = int(model.net_info["height"])
-    assert inp_dim % 32 == 0 
-    assert inp_dim > 32
-
-    #If there's a GPU availible, put the model on GPU
-    if CUDA:
-        model.cuda()
-    
-    
-    #Set the model in evaluation mode
-    model.eval()
-    
     read_dir = time.time()
     #Detection phase
     try:
@@ -162,7 +181,7 @@ if __name__ ==  '__main__':
         #clubbing these ops in one loop instead of two. 
         #loops are slower than vectorised operations. 
         
-        prediction = write_results(prediction, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+        prediction = write_results_person(prediction, confidence, num_classes, nms = True, nms_conf = nms_thesh)
         
         
         if type(prediction) == int:
