@@ -148,9 +148,9 @@ if __name__ ==  '__main__':
         leftover = 1
         
         
-    if batch_size != 1:
-        num_batches = len(imlist) // batch_size + leftover       
-        im_batches = [list(imlist[i*batch_size : min((i+1)*batch_size), len(imlist)]) for i in range(num_batches)]     
+#    if batch_size != 1:
+    num_batches = len(imlist) // batch_size + leftover       
+    im_batches = [list(imlist[i*batch_size : min((i+1)*batch_size), len(imlist)]) for i in range(num_batches)]     
 #        im_batches = [torch.cat((im_batches[i*batch_size : min((i +  1)*batch_size,
 #                            len(im_batches))]))  for i in range(num_batches)]        
 
