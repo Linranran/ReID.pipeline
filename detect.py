@@ -80,6 +80,26 @@ if __name__ ==  '__main__':
     args = arg_parse()
     
     scales = args.scales
+    
+    
+#        scales = [int(x) for x in scales.split(',')]
+#        
+#        
+#        
+#        args.reso = int(args.reso)
+#        
+#        num_boxes = [args.reso//32, args.reso//16, args.reso//8]    
+#        scale_indices = [3*(x**2) for x in num_boxes]
+#        scale_indices = list(itertools.accumulate(scale_indices, lambda x,y : x+y))
+#    
+#        
+#        li = []
+#        i = 0
+#        for scale in scale_indices:        
+#            li.extend(list(range(i, scale))) 
+#            i = scale
+#        
+#        scale_indices = li
 
     images = args.images
     batch_size = int(args.bs)
@@ -127,6 +147,11 @@ if __name__ ==  '__main__':
         
     load_batch = time.time()
     
+    batches = list(map(prep_image, imlist, [inp_dim for x in range(len(imlist))]))
+    im_batches = [x[0] for x in batches]
+    orig_ims = [x[1] for x in batches]
+    im_dim_list = [x[2] for x in batches]
+    im_dim_list = torch.FloatTensor(im_dim_list).repeat(1,2)
     
     imlist.sort()
     
