@@ -271,7 +271,7 @@ if __name__ ==  '__main__':
             c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
             cv2.rectangle(img, c1, c2,color, -1)
             cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
-        return img
+            return img
         
         list(map(lambda x: write(x, orig_ims), prediction))
         det_names = pd.Series(imlist).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))
