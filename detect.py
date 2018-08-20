@@ -147,10 +147,8 @@ if __name__ ==  '__main__':
     if (len(imlist) % batch_size):
         leftover = 1
         
-        
-#    if batch_size != 1:
     num_batches = len(imlist) // batch_size + leftover       
-    im_batches = [list(imlist[i*batch_size : min((i+1)*batch_size), len(imlist)]) for i in range(num_batches)]     
+    im_batches = [list(imlist[i*batch_size : min((i+1)*batch_size, len(imlist))]) for i in range(num_batches)]     
 #        im_batches = [torch.cat((im_batches[i*batch_size : min((i +  1)*batch_size,
 #                            len(im_batches))]))  for i in range(num_batches)]        
 
@@ -253,9 +251,13 @@ if __name__ ==  '__main__':
         prediction[:,[2,4]] -= (inp_dim - scaling_factor*im_dim_list[:,1].view(-1,1))/2    
         prediction[:,1:5] /= scaling_factor
         
+        import pdb
+        pdb.set_trace()
+        
+        
         for idx in range(prediction.shape[0]):
-            output[idx, [1,3]] = torch.clamp(prediction[idx, [1,3]], 0.0, im_dim_list[idx,0])
-            output[idx, [2,4]] = torch.clamp(prediction[idx, [2,4]], 0.0, im_dim_list[idx,1])
+            prediction[idx, [1,3]] = torch.clamp(prediction[idx, [1,3]], 0.0, im_dim_list[idx,0])
+            prediction[idx, [2,4]] = torch.clamp(prediction[idx, [2,4]], 0.0, im_dim_list[idx,1])
         colors = pkl.load(open("pallete", "rb"))
         
         def write(x, orig):
