@@ -211,13 +211,15 @@ def write_results(prediction, confidence, num_classes, nms = True, nms_conf = 0.
 
 
 def write_results_person(prediction, confidence, num_classes, nms = True, nms_conf = 0.4):
-    import pdb
-    pdb.set_trace()
+#    import pdb
+#    pdb.set_trace()
+
+    person_cls_index = torch.nonzero((torch.argmax(prediction[:, :, 5:5+num_classes], 2) == 0).squeeze()).squeeze()
+    prediction = torch.index_select(prediction, 1, person_cls_index.long())
 
     conf_mask = (prediction[:,:,4] > confidence).float().unsqueeze(2)
     prediction = prediction*conf_mask
-    person_cls_index = torch.nonzero((torch.argmax(prediction[:, :, 5:5+num_classes], 2) == 0).float())
-    prediction = torch.index_select(prediction, 1, person_cls_index.long())
+    
     
 
     try:

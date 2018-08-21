@@ -50,8 +50,7 @@ def arg_parse():
     return parser.parse_args()
     
     
-def measure(frame):
-    img, orig_im, dim = prep_image(frame, inp_dim)
+def measure(img, dim):
     im_dim = torch.FloatTensor(dim).repeat(1,2)   
     if CUDA:
         im_dim = im_dim.cuda()
@@ -72,6 +71,15 @@ def measure(frame):
         output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, im_dim[i,1])
 
     return output
+#    
+#def kalman_prediction(positions, velocity):
+#    """
+#    args: 
+#        positions: [num_identities_1, 2]
+#        velocity: [num_identities_2, 4]
+#    """
+#     positions = 
+    
 
 
 args = arg_parse()
@@ -119,11 +127,11 @@ if __name__ ==  '__main__':
         
     load_batch = time.time()
     
-    batches = list(map(prep_image, imlist, [inp_dim for x in range(len(imlist))]))
-    im_batches = [x[0] for x in batches]
-    orig_ims = [x[1] for x in batches]
-    im_dim_list = [x[2] for x in batches]
-    im_dim_list = torch.FloatTensor(im_dim_list).repeat(1,2)
+#    batches = list(map(prep_image, imlist, [inp_dim for x in range(len(imlist))]))
+#    im_batches = [x[0] for x in batches]
+#    orig_ims = [x[1] for x in batches]
+#    im_dim_list = [x[2] for x in batches]
+#    im_dim_list = torch.FloatTensor(im_dim_list).repeat(1,2)
     
     imlist.sort()
 
@@ -213,6 +221,11 @@ if __name__ ==  '__main__':
         for idx in range(prediction.shape[0]):
             prediction[idx, [1,3]] = torch.clamp(prediction[idx, [1,3]], 0.0, im_dim_list[idx,0])
             prediction[idx, [2,4]] = torch.clamp(prediction[idx, [2,4]], 0.0, im_dim_list[idx,1])
+        
+        import pdb
+        pdb.set_trace()    
+            
+        
         colors = pkl.load(open("pallete", "rb"))
         
         def write(x, orig):
