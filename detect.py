@@ -15,6 +15,7 @@ import pandas as pd
 import random 
 import pickle as pkl
 import itertools
+import matplotlib.pyplot as plt
 
 
 def arg_parse():
@@ -221,10 +222,7 @@ if __name__ ==  '__main__':
         for idx in range(prediction.shape[0]):
             prediction[idx, [1,3]] = torch.clamp(prediction[idx, [1,3]], 0.0, im_dim_list[idx,0])
             prediction[idx, [2,4]] = torch.clamp(prediction[idx, [2,4]], 0.0, im_dim_list[idx,1])
-        
-        import pdb
-        pdb.set_trace()    
-            
+
         
         colors = pkl.load(open("pallete", "rb"))
         
