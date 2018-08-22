@@ -7,6 +7,10 @@ import matplotlib.pyplot as plt
 from detect import *
 from preprocess import prep_image
 
+
+import pdb
+
+
 class identity(object):
     colors = pkl.load(open("pallete", "rb"))
     colors_used = np.full(len(colors), False)
@@ -28,6 +32,7 @@ class identity(object):
         self.lower_right = None
         self.P = 0
         self.K = 0
+        self.missed = 0
     
     @property
     def upper_left(self):
@@ -99,7 +104,7 @@ def none_dups(a):
             a[seen[x]] = None
     return a
 
-def pair_position(position_pre, position_post, threshold=3000):
+def pair_position(position_pre, position_post, threshold=5000):
 
     num_id_pre = position_pre.shape[0]
     num_id_post = position_post.shape[0]
@@ -128,7 +133,7 @@ def pair_position(position_pre, position_post, threshold=3000):
 
     
 
-def kalman_prediction(id_list, Q):
+def kalman_prediction(id_list, candidate_list, Q):
     for i in range(len(id_list)):
         if id_list[i].v is not None:
             id_list[i].pos += id_list[i].v
@@ -141,11 +146,14 @@ def kalman_prediction(id_list, Q):
             
             id_list[i].v = 1*id_list[i].v
             
-            id_list[i].interval += 1
-            
+        id_list[i].interval += 1    
         id_list[i].P += Q
     
-    return id_list
+    for i in range(len(candidate_list)):
+        candidate_list[i].interval += 1
+        candidate_list[i].P += Q
+    
+    return id_list, candidate_list
     
 def kalman_update(id_list, candidate_list, measured_position, R):
 
@@ -163,6 +171,7 @@ def kalman_update(id_list, candidate_list, measured_position, R):
     
     if not pair:
         return id_list, candidate_list
+#    pdb.set_trace()
     for i in range(len(pos_map)):
         if pos_map[i] is not None:
             
@@ -170,8 +179,12 @@ def kalman_update(id_list, candidate_list, measured_position, R):
         
             ttl_list[i].K = ttl_list[i].P / (ttl_list[i].P + R)
             ttl_list[i].P -= ttl_list[i].K * ttl_list[i].P
-        
-            ttl_list[i].pos += ttl_list[i].K * (measured_position[pos_map[i], :2] - ttl_list[i].pos)
+            
+            if i < legit_num:
+                ttl_list[i].pos += ttl_list[i].K * (measured_position[pos_map[i], :2] - ttl_list[i].pos)
+            else:   # candidates
+                ttl_list[i].pos = measured_position[pos_map[i], :2]
+                
             ttl_list[i].pos[0].clip(min=0, max=identity.max_dim[0])
             ttl_list[i].pos[1].clip(min=0, max=identity.max_dim[1])
             
@@ -179,7 +192,7 @@ def kalman_update(id_list, candidate_list, measured_position, R):
             ttl_list[i].lower_right[0].clip(min=0, max=identity.max_dim[0])
             ttl_list[i].lower_right[1].clip(min=0, max=identity.max_dim[1])
             
-#            pdb.set_trace()
+            
             
             ttl_list[i].v = (ttl_list[i].pos - ttl_list[i].pos_pre) / ttl_list[i].interval
             ttl_list[i].pos_pre = ttl_list[i].pos.copy()
@@ -193,8 +206,10 @@ def kalman_update(id_list, candidate_list, measured_position, R):
         else:
             # could be exit ids, add to candidates
             if i < legit_num:
-                candidate_list.append(ttl_list[i])
-                id_list.remove(ttl_list[i])
+                ttl_list[i].missed += 1
+                if ttl_list[i].missed > 10:
+                    candidate_list.append(ttl_list[i])
+                    id_list.remove(ttl_list[i])
             else:
                 # was in candidate and not detected this time, could be false alarm, or exit ids
                 candidate_list.remove(ttl_list[i])
@@ -213,12 +228,14 @@ def kalman_update(id_list, candidate_list, measured_position, R):
             
             
 def write_identity(frame, id_list):
+
     for i in range(len(id_list)):
         c1 = (id_list[i].upper_left[0].astype('int'), id_list[i].upper_left[1].astype('int'))
         c2 = (id_list[i].lower_right[0].astype('int'), id_list[i].lower_right[1].astype('int'))
         label = "{0}:{1}".format('Person', id_list[i].name)
         color = id_list[i].color
-        cv2.rectangle(frame, c1, c2,color, 1)
+        
+        cv2.rectangle(frame, c1, c2, color, 1)
         t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
         c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
         cv2.rectangle(frame, c1, c2, color, -1)
@@ -226,7 +243,7 @@ def write_identity(frame, id_list):
         
         for h in range(len(id_list[i].hist)):
             cv2.circle(frame, id_list[i].hist[h], 3, color, -1)
-        cv2.circle(frame, id_list[i].hist[h], 3, color, -1)
+        cv2.circle(frame, tuple(id_list[i].pos.astype('int')), 3, color, -1)
         
     return frame
     
@@ -328,27 +345,21 @@ if __name__ ==  '__main__':
     
     
     
-    
     id_list = [identity() for x in range(len(pos_map))] 
     candidate_list = []
     
     velocity = np.zeros([len(pos_map), 4])
     for i in range(len(pos_map)):
-        velocity[i, 0] = (position_post[pos_map[i], 0] - position_pre[i, 0]) / interval
-        velocity[i, 1] = (position_post[pos_map[i], 1] - position_pre[i, 1]) / interval
+        if pos_map[i] is not None:
+            velocity[i, 0] = (position_post[pos_map[i], 0] - position_pre[i, 0]) / interval
+            velocity[i, 1] = (position_post[pos_map[i], 1] - position_pre[i, 1]) / interval
         velocity[i, 2:4] = position_pre[i, :2]
-        
-#    velocity[:, 0] = [(position_post[x, 0] - position_pre[pos_map[x], 0]) / interval
-#                        if pos_map[x] is not None else None for x in pos_map]   # velocity in x
-#    velocity[:, 1] = [(position_post[x, 1] - position_pre[pos_map[x], 1]) / interval
-#                        if pos_map[x] is not None else None for x in pos_map]   # velocity in y
-#    velocity[:, 2] = position_pre[:, 0]   # position in x
-#    velocity[:, 3] = position_pre[:, 1]   # position in y
     
     for i in range(len(pos_map)):
         id_list[i].pos = velocity[i, 2:4]
         id_list[i].pos_pre = id_list[i].pos.copy()
-        id_list[i].v = velocity[i, 0:2]
+        if any(velocity[i, 0:2]!=0):
+            id_list[i].v = velocity[i, 0:2]
         id_list[i].lower_right = position_pre[i, 2:4]
     
     print('Initial identities and velocities resolved...')    
@@ -364,12 +375,9 @@ if __name__ ==  '__main__':
         if inter > interval:
             detect_flag = True
             
-#            import pdb
-#            pdb.set_trace()
-            
         # run kalman filter
         
-        id_list = kalman_prediction(id_list, Q)   
+        id_list, candidate_list = kalman_prediction(id_list, candidate_list, Q)   
         
         if detect_flag:
             measured_position = measure(frame, dim)[:, 1:5].numpy()
@@ -391,8 +399,6 @@ if __name__ ==  '__main__':
         
         detect_flag = False
         
-#        import pdb
-#        pdb.set_trace()
     
         print("{0:20s} finished in {1:6.3f} seconds".format(imlist[idx].split("/")[-1], end - start))
         print("{0:20s} {1:s}".format("Identity Detected:", " ".join(objs)))
