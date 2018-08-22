@@ -207,7 +207,7 @@ def write_identity(frame, id_list):
     for i in range(len(id_list)):
         c1 = tuple(id_list[i].upper_left[0].int(), id_list[i].upper_left[1].int())
         c2 = tuple(id_list[i].lower_right[0].int(), id_list[i].lower_right[1].int())
-        label = "{0}".format('Person')
+        label = "{0}:{1}".format('Person', id_list[i].name)
         color = id_list[i].color
         cv2.rectangle(frame, c1, c2,color, 1)
         t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
@@ -226,14 +226,34 @@ def __show_results__(id_list, candidate_list, image)
     _img_ = image.copy()
     
     for i in range(len(id_list)):
-        
+        c1 = tuple(id_list[i].upper_left[0].int(), id_list[i].upper_left[1].int())
+        c2 = tuple(id_list[i].lower_right[0].int(), id_list[i].lower_right[1].int())
+        label = "{0}:{1}".format('Person', id_list[i].name)
+        color = id_list[i].color
+        cv2.rectangle(_img_, c1, c2,color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(_img_, c1, c2, color, -1)
+        cv2.putText(_img_, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
+    
+    for i in range(len(candidate_list)):
+        c1 = tuple(candidate_list[i].upper_left[0].int(), candidate_list[i].upper_left[1].int())
+        c2 = tuple(candidate_list[i].lower_right[0].int(), candidate_list[i].lower_right[1].int())
+        label = "{0}:{1}".format('Candidate', candidate_list[i].name)
+        color = (255, 255, 255)
+        cv2.rectangle(_img_, c1, c2,color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(_img_, c1, c2, color, -1)
+        cv2.putText(_img_, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
     
     
     cv2.imshow("frame", _img_)
     key = cv2.waitKey(1)
     if key & 0xFF == ord('q'):
         cv2.destroyAllWindows()
-
+    
+    return
 
 
 if __name__ ==  '__main__':
@@ -350,20 +370,6 @@ if __name__ ==  '__main__':
         print("{0:20s} predicted in {1:6.3f} seconds".format(imlist[idx].split("/")[-1], end - start)
         print("{0:20s} {1:s}".format("Identity Detected:", " ".join(objs)))
         print("----------------------------------------------------------")
-        
-        
-            
-        
-        
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     
     
