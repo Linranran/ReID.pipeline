@@ -80,7 +80,7 @@ def arg_parse():
     parser.add_argument("--interval", dest = "interval", help = "Number of frames to skip before detection",
                         default = 10)
     parser.add_argument("--Q", dest = "Q", help = "Process noise variance",
-                        default = 5)
+                        default = 1)
     parser.add_argument("--R", dest = "R", help = "Measurement uncertainty",
                         default = 5)
     
@@ -104,7 +104,7 @@ def none_dups(a):
             a[seen[x]] = None
     return a
 
-def pair_position(position_pre, position_post, threshold=5000):
+def pair_position(position_pre, position_post, threshold=10000):
 
     num_id_pre = position_pre.shape[0]
     num_id_post = position_post.shape[0]
@@ -155,9 +155,8 @@ def kalman_prediction(id_list, candidate_list, Q):
     
     return id_list, candidate_list
     
+    
 def kalman_update(id_list, candidate_list, measured_position, R):
-
-    import pdb
 
     ttl_list = id_list + candidate_list 
     legit_num = len(id_list)
@@ -193,10 +192,13 @@ def kalman_update(id_list, candidate_list, measured_position, R):
             ttl_list[i].lower_right[1].clip(min=0, max=identity.max_dim[1])
             
             
-            
-            ttl_list[i].v = (ttl_list[i].pos - ttl_list[i].pos_pre) / ttl_list[i].interval
+            if ttl_list[i].v is None:
+                ttl_list[i].v = (ttl_list[i].pos - ttl_list[i].pos_pre) / ttl_list[i].interval
+            else:
+                ttl_list[i].v += ttl_list[i].K * ((ttl_list[i].pos - ttl_list[i].pos_pre) / ttl_list[i].interval - ttl_list[i].v)
             ttl_list[i].pos_pre = ttl_list[i].pos.copy()
             ttl_list[i].interval = 0
+            ttl_list[i].missed = 0
             
             # update candidate_list and id_list
             
@@ -227,7 +229,7 @@ def kalman_update(id_list, candidate_list, measured_position, R):
     return id_list, candidate_list
             
             
-def write_identity(frame, id_list):
+def write_identity(frame, id_list, candidate_list):
 
     for i in range(len(id_list)):
         c1 = (id_list[i].upper_left[0].astype('int'), id_list[i].upper_left[1].astype('int'))
@@ -244,6 +246,17 @@ def write_identity(frame, id_list):
         for h in range(len(id_list[i].hist)):
             cv2.circle(frame, id_list[i].hist[h], 3, color, -1)
         cv2.circle(frame, tuple(id_list[i].pos.astype('int')), 3, color, -1)
+        
+    for i in range(len(candidate_list)):
+        c1 = (candidate_list[i].upper_left[0].astype('int'), candidate_list[i].upper_left[1].astype('int'))
+        c2 = (candidate_list[i].lower_right[0].astype('int'), candidate_list[i].lower_right[1].astype('int'))
+        label = "{0}:{1}".format('Candidate', candidate_list[i].name)
+        color = (255, 255, 255)
+        cv2.rectangle(frame, c1, c2,color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(frame, c1, c2, color, -1)
+        cv2.putText(frame, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
         
     return frame
     
@@ -372,8 +385,11 @@ if __name__ ==  '__main__':
 
         
         
-        if inter > interval:
+        if inter >= interval:
             detect_flag = True
+            
+        if idx>=29:
+            pdb.set_trace()
             
         # run kalman filter
         
@@ -390,7 +406,7 @@ if __name__ ==  '__main__':
         if idx % 20 == 0:
             [id_list[x].add_hist() for x in range(len(id_list))]
             
-        write_identity(ogl, id_list)
+        write_identity(ogl, id_list, candidate_list)
         det_names = pd.Series(imlist[idx]).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))[0]
         cv2.imwrite(det_names, ogl)
         
