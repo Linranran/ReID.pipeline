@@ -33,6 +33,7 @@ class identity(object):
         self.P = 0
         self.K = 0
         self.missed = 0
+        
     
     @property
     def upper_left(self):
@@ -43,6 +44,12 @@ class identity(object):
             upper_left_[0].clip(min=0, max=identity.max_dim[0])
             upper_left_[1].clip(min=0, max=identity.max_dim[1])
             return upper_left_
+            
+    @property
+    def size(self):
+        if self.lower_right is None or self.pos is None or identity.max_dim is None:
+            return None
+        return np.sqrt(np.sum(np.square(self.lower_right - self.pos))) / (np.sqrt(np.sum(np.square(identity.max_dim)))/2)
             
             
     def add_hist(self):
@@ -89,22 +96,26 @@ def arg_parse():
 
 def L2distance(dist_matrix):
     try:
-        return np.sum(np.square(dist_matrix), axis=1)
+        return np.sqrt(np.sum(np.square(dist_matrix), axis=1))
     except:
-        return np.sum(np.square(dist_matrix))
+        return np.sqrt(np.sum(np.square(dist_matrix)))
 
-def none_dups(a):
+def none_dups(a, dist):
     seen = {}
 
     for i, x in enumerate(a):
         if x not in seen:
-            seen[x] = i   # record first occurance
+            seen[x] = (i, dist[i])   # record first occurance
         else:
-            a[i] = None
-            a[seen[x]] = None
+            
+            if dist[i] > seen[x][1]:
+                a[i] = None
+            else:   # find a better neighbor
+                a[seen[x][0]] = None
+                seen[x] = (i, dist[i])
     return a
 
-def pair_position(position_pre, position_post, threshold=10000):
+def pair_position(position_pre, position_post, threshold_scale=1):
 
     num_id_pre = position_pre.shape[0]
     num_id_post = position_post.shape[0]
@@ -118,11 +129,20 @@ def pair_position(position_pre, position_post, threshold=10000):
     center_post_t = np.tile(center_post, (num_id_pre, 1))
     
     dist = center_pre_t - center_post_t
+    id_sizes = L2distance(position_pre[:,:2]-position_pre[:,2:4])
+    
+#    pdb.set_trace()
     
     pos_map = [np.argmin(L2distance(dist[i: i+num_id_post]) )
                     for i in range(0,center_pre_t.shape[0],num_id_post)]
-    pos_map = [pos_map[i] if L2distance(center_pre[i]-center_post[pos_map[i]])<threshold else None for i in range(num_id_pre)]
-    pos_map = none_dups(pos_map)
+                    
+    pair_dist = [L2distance(center_pre[i]-center_post[pos_map[i]]) for i in range(num_id_pre)]
+
+    pos_map = [pos_map[i] if pair_dist[i]<threshold_scale*id_sizes[i] else None for i in range(num_id_pre)]
+#    pdb.set_trace()
+    
+    
+    pos_map = none_dups(pos_map, pair_dist)
     
     if all(i is None for i in pos_map):
         pos_map = dict(enumerate(pos_map))
@@ -161,9 +181,10 @@ def kalman_update(id_list, candidate_list, measured_position, R):
     ttl_list = id_list + candidate_list 
     legit_num = len(id_list)
     cand_num = len(candidate_list)
-    est_position = np.zeros((len(ttl_list), 2))
+    est_position = np.zeros((len(ttl_list), 4))
     for i in range(len(ttl_list)):
-        est_position[i, :] = ttl_list[i].pos
+        est_position[i, :2] = ttl_list[i].pos
+        est_position[i, 2:4] = ttl_list[i].lower_right
     pos_map, pair = pair_position(est_position, measured_position)
     
     accounted = np.full(measured_position.shape[0], False)
@@ -175,7 +196,9 @@ def kalman_update(id_list, candidate_list, measured_position, R):
         if pos_map[i] is not None:
             
             accounted[pos_map[i]] = True
-        
+            
+#            pdb.set_trace()
+            
             ttl_list[i].K = ttl_list[i].P / (ttl_list[i].P + R)
             ttl_list[i].P -= ttl_list[i].K * ttl_list[i].P
             
@@ -209,7 +232,7 @@ def kalman_update(id_list, candidate_list, measured_position, R):
             # could be exit ids, add to candidates
             if i < legit_num:
                 ttl_list[i].missed += 1
-                if ttl_list[i].missed > 10:
+                if ttl_list[i].missed > 15:
                     candidate_list.append(ttl_list[i])
                     id_list.remove(ttl_list[i])
             else:
@@ -295,13 +318,17 @@ def __show_results__(id_list, candidate_list, ogl):
 
 if __name__ ==  '__main__':
 
-    inp_dim = int(model.net_info["height"])
 
+    np.set_printoptions(suppress=True)
     args = arg_parse()
     images = args.images
     interval = args.interval
     R = args.R
     Q = args.Q
+    inp_dim = int(args.reso)
+    model.net_info["height"] = args.reso
+    assert inp_dim % 32 == 0 
+    assert inp_dim > 32
     batch_size = 1
 
     start = 0
@@ -332,7 +359,7 @@ if __name__ ==  '__main__':
     # deal with initial identities
     
     offset = 0
-    print('Computinng initial identities...')
+    print('Computing initial identities...')
     
     
     
@@ -347,9 +374,9 @@ if __name__ ==  '__main__':
         position_post[:, 0] = [(x[0]+x[2])/2 for x in position_post]
         position_post[:, 1] = [(x[1]+x[3])/2 for x in position_post]
         
-        pos_map, paired = pair_position(position_pre, position_post)
-        
         identity.max_dim = dim
+        
+        pos_map, paired = pair_position(position_pre, position_post)
         
         if paired:
             break
@@ -388,8 +415,8 @@ if __name__ ==  '__main__':
         if inter >= interval:
             detect_flag = True
             
-        if idx>=29:
-            pdb.set_trace()
+#        if idx>=109:
+#            pdb.set_trace()
             
         # run kalman filter
         

@@ -34,7 +34,7 @@ def arg_parse():
                         "Image / Directory to store detections to",
                         default = "det", type = str)
     parser.add_argument("--bs", dest = "bs", help = "Batch size", default = 1)
-    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.5)
+    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.7)
     parser.add_argument("--nms_thresh", dest = "nms_thresh", help = "NMS Threshhold", default = 0.4)
     parser.add_argument("--cfg", dest = 'cfgfile', help = 
                         "Config file",
@@ -53,6 +53,7 @@ def arg_parse():
     
 def measure(img, dim):
     im_dim = torch.FloatTensor(dim).repeat(1,2)   
+    inp_dim = int(model.net_info["height"])
     if CUDA:
         im_dim = im_dim.cuda()
         img = img.cuda()
@@ -93,12 +94,9 @@ print("Loading network.....")
 model = Darknet(args.cfgfile)
 model.load_weights(args.weightsfile)
 print("Network successfully loaded")
-model.net_info["height"] = args.reso
-inp_dim = int(model.net_info["height"])
+
 num_classes = 80
 classes = load_classes('data/coco.names') 
-assert inp_dim % 32 == 0 
-assert inp_dim > 32
 
 #If there's a GPU availible, put the model on GPU
 if CUDA:
@@ -108,6 +106,8 @@ model.eval()
 
 if __name__ ==  '__main__':
     images = args.images
+    inp_dim = int(args.reso)
+    model.net_info["height"] = args.reso
     batch_size = int(args.bs)
 
     start = 0
