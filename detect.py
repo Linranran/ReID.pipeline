@@ -73,14 +73,6 @@ def measure(img, dim):
         output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, im_dim[i,1])
 
     return output
-#    
-#def kalman_prediction(positions, velocity):
-#    """
-#    args: 
-#        positions: [num_identities_1, 2]
-#        velocity: [num_identities_2, 4]
-#    """
-#     positions = 
     
 
 

@@ -3,7 +3,6 @@ import numpy as np
 import argparse
 import pickle as pkl
 import matplotlib.pyplot as plt
-import sklearn.utils.linear_assignment_ as sk_assignment
 
 from detect import *
 from preprocess import prep_image
@@ -101,63 +100,22 @@ def L2distance(dist_matrix):
     except:
         return np.sqrt(np.sum(np.square(dist_matrix)))
 
+def none_dups(a, dist):
+    seen = {}
 
-def assign(dist_map, pair_dist, pair_velocity, pre_num, post_num):
+    for i, x in enumerate(a):
+        if x not in seen:
+            seen[x] = (i, dist[i])   # record first occurance
+        else:
+            
+            if dist[i] > seen[x][1]:
+                a[i] = None
+            else:   # find a better neighbor
+                a[seen[x][0]] = None
+                seen[x] = (i, dist[i])
+    return a
 
-    cost_mat = np.full((pre_num, post_num), 100, dtype='float32')
-    for i in range(pre_num):
-        for j, x in enumerate(dist_map[i]):
-            if x is None:
-                continue
-            if pair_velocity[i][j] is None:
-                cost_mat[i, x] = pair_dist[i][j] + 10
-            if pair_velocity[i][j] is not None:
-                cost_mat[i, x] = pair_dist[i][j] + pair_velocity[i][j]
-                
-    assign_result_holder = sk_assignment.linear_assignment(cost_mat)
-    assign_result = dict([i, None] for i in range(pre_num))
-    for i in range(assign_result_holder.shape[0]):
-        pre, post = assign_result_holder[i]
-        if cost_mat[pre, post] < 20:       # meaning both distance and velocity pair requirment are not met
-            assign_result[pre] = post
-    
-    return assign_result
-
-
-
-def argmin_top3(array):     # todo
-    '''
-        return argmin of the least 3 elements in asecending order.
-    '''
-#    pass  # note could return None, elements could be None
-    
-    if len(array) == 0:   
-        return (None)
-        
-    argmin_res = [None for _ in range(3)]
-    for i in range(len(array)):
-        if argmin_res[0] is None or array[i] < array[argmin_res[0]]:
-            argmin_res[2] = argmin_res[1]
-            argmin_res[1] = argmin_res[0]
-            argmin_res[0] = i
-        elif argmin_res[1] is None or array[i] < array[argmin_res[1]]:
-            argmin_res[2] = argmin_res[1]
-            argmin_res[1] = i
-        elif argmin_res[2] is None or array[i] < array[argmin_res[2]]:
-            argmin_res[2] = i
-
-    return tuple(argmin_res)
-                
-
-def unit_vector(vector):
-    return vector / np.linalg.norm(vector)
-
-def angle_between(v1, v2):
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-
-def pair_position(position_pre, position_post, threshold_scale=1, id_list=None):
+def pair_position(position_pre, position_post, threshold_scale=1):
 
     num_id_pre = position_pre.shape[0]
     num_id_post = position_post.shape[0]
@@ -171,39 +129,24 @@ def pair_position(position_pre, position_post, threshold_scale=1, id_list=None):
     dist = center_pre_t - center_post_t
     id_sizes = L2distance(position_pre[:,:2]-position_pre[:,2:4])
     
-    dist_map_ = [argmin_top3(L2distance(dist[i: i+num_id_post]))         # get the top3 minimum index
+#    pdb.set_trace()
+    
+    pos_map = [np.argmin(L2distance(dist[i: i+num_id_post]) )
                     for i in range(0,center_pre_t.shape[0],num_id_post)]
+                    
+    pair_dist = [L2distance(center_pre[i]-center_post[pos_map[i]]) for i in range(num_id_pre)]
+
+    pos_map = [pos_map[i] if pair_dist[i]<threshold_scale*id_sizes[i] else None for i in range(num_id_pre)]
+#    pdb.set_trace()
     
-    pair_dist = []
-    pair_velocity = []
-    dist_map = []
-    velocity_map = []
-    for i in range(num_id_pre):
-        tmp_dist = [L2distance(center_pre[i]-center_post[x]) for x in dist_map_[i] if x is not None ]
-        pair_dist.append(tuple(map(lambda x: x/id_sizes[i] if x<threshold_scale*id_sizes[i] else None, tmp_dist))) 
-        dist_map.append(tuple(x for j,x in enumerate(dist_map_[i]) if pair_dist[i][j] is not None))           # within threshold
-        
-        if id_list is not None:     # initial id pair doesn't take velocity into account
-            tmp_velocity = [(center_post[j] - id_list[i].pos_pre)/id_list[i].interval for j in dist_map[i]]
-            pair_velocity_ = tuple(map(lambda x: angle_between(x, id_list[i].v)/(np.pi/4) if id_list[i].v is not None 
-                                                                                    and angle_between(x, id_list[i].v)<np.pi/2 else None, 
-                                           tmp_velocity))
-                                           
-            pair_velocity_ = [0 if pair_velocity_[x] is not None 
-                                                   and L2distance(tmp_velocity[x])<id_sizes[i]*0.01*threshold_scale 
-                                else pair_velocity_[x]
-                                for x in range(len(pair_velocity_))]            
-                                
-            pair_velocity.append(pair_velocity_)
-    if id_list is not None:
-        pos_map = assign(dist_map, pair_dist, pair_velocity, num_id_pre, num_id_post)
-    else:
-        # initial ids
-        pos_map = assign(dist_map, pair_dist, np.full((num_id_pre, num_id_post), None), num_id_pre, num_id_post)
     
-    if all(pos_map[i] is None for i in pos_map):
+    pos_map = none_dups(pos_map, pair_dist)
+    
+    if all(i is None for i in pos_map):
+        pos_map = dict(enumerate(pos_map))
         return pos_map, False
     else:
+        pos_map = dict(enumerate(pos_map))
         return pos_map, True
 
     
@@ -240,20 +183,19 @@ def kalman_update(id_list, candidate_list, measured_position, R):
     for i in range(len(ttl_list)):
         est_position[i, :2] = ttl_list[i].pos
         est_position[i, 2:4] = ttl_list[i].lower_right
-    
-#    pdb.set_trace()
-    
-    pos_map, pair = pair_position(est_position, measured_position, id_list=ttl_list)
+    pos_map, pair = pair_position(est_position, measured_position)
     
     accounted = np.full(measured_position.shape[0], False)
     
     if not pair:
         return id_list, candidate_list
+#    pdb.set_trace()
     for i in range(len(pos_map)):
         if pos_map[i] is not None:
             
             accounted[pos_map[i]] = True
             
+#            pdb.set_trace()
             
             ttl_list[i].K = ttl_list[i].P / (ttl_list[i].P + R*(1/ttl_list[i].size))
             ttl_list[i].P -= ttl_list[i].K * ttl_list[i].P
@@ -432,7 +374,6 @@ if __name__ ==  '__main__':
         
         identity.max_dim = dim
         
-        
         pos_map, paired = pair_position(position_pre, position_post)
         
         if paired:
@@ -471,7 +412,9 @@ if __name__ ==  '__main__':
         
         if inter >= interval:
             detect_flag = True
-
+            
+#        if idx>=109:
+#            pdb.set_trace()
             
         # run kalman filter
         
