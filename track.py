@@ -185,16 +185,25 @@ def pair_position(position_pre, position_post, threshold_scale=1, id_list=None):
         
         if id_list is not None:     # initial id pair doesn't take velocity into account
             tmp_velocity = [(center_post[j] - id_list[i].pos_pre)/id_list[i].interval for j in dist_map[i]]
-            pair_velocity_ = tuple(map(lambda x: angle_between(x, id_list[i].v)/(np.pi/4) if id_list[i].v is not None 
+            pair_velocity_ = list(map(lambda x: angle_between(x, id_list[i].v)/(np.pi/4) if id_list[i].v is not None 
                                                                                     and angle_between(x, id_list[i].v)<np.pi/2 else None, 
                                            tmp_velocity))
                                            
-            pair_velocity_ = [0 if pair_velocity_[x] is not None 
-                                                   and L2distance(tmp_velocity[x])<id_sizes[i]*0.01*threshold_scale 
-                                else pair_velocity_[x]
-                                for x in range(len(pair_velocity_))]            
+            for x in range(len(pair_velocity_)):
+                if L2distance(tmp_velocity[x])<id_sizes[i]*0.015*threshold_scale:
+                    if id_list[i].v is not None and L2distance(id_list[i].v)<id_sizes[i]*0.015*threshold_scale:
+                        pair_velocity_[x] = 0
+                    elif id_list[i].v is None:
+                        pair_velocity_[x] = 0
+                
+#            
+#            
+#            pair_velocity_ = [0 if (L2distance(tmp_velocity[x])<id_sizes[i]*0.015*threshold_scale 
+#                                   or L2distance(id_list[i].v)<id_sizes[i]*0.015*threshold_scale)
+#                                else pair_velocity_[x]
+#                                for x in range(len(pair_velocity_))]            
                                 
-            pair_velocity.append(pair_velocity_)
+            pair_velocity.append(tuple(pair_velocity_))
     if id_list is not None:
         pos_map = assign(dist_map, pair_dist, pair_velocity, num_id_pre, num_id_post)
     else:
