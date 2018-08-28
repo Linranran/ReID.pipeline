@@ -157,7 +157,7 @@ def angle_between(v1, v2):
     v2_u = unit_vector(v2)
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
-def pair_position(position_pre, position_post, threshold_scale=1, id_list=None):
+def pair_position(position_pre, position_post, threshold_scale=0.3, id_list=None):
 
     num_id_pre = position_pre.shape[0]
     num_id_post = position_post.shape[0]
@@ -191,7 +191,7 @@ def pair_position(position_pre, position_post, threshold_scale=1, id_list=None):
                                            
             for x in range(len(pair_velocity_)):
                 if L2distance(tmp_velocity[x])<id_sizes[i]*0.015*threshold_scale:
-                    if id_list[i].v is not None and L2distance(id_list[i].v)<id_sizes[i]*0.015*threshold_scale:
+                    if id_list[i].v is not None and L2distance(id_list[i].v)<id_sizes[i]*0.045*threshold_scale:
                         pair_velocity_[x] = 0
                     elif id_list[i].v is None:
                         pair_velocity_[x] = 0
