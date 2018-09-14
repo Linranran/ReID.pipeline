@@ -1,5 +1,5 @@
-
 from __future__ import division
+import sklearn.utils.linear_assignment_ as sk_assignment
 
 import torch 
 import torch.nn as nn
@@ -9,6 +9,8 @@ import numpy as np
 import cv2 
 import matplotlib.pyplot as plt
 from bbox import bbox_iou
+from idclass import identity
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters())
@@ -95,7 +97,151 @@ def unique(tensor):
     tensor_res = tensor.new(unique_tensor.shape)
     tensor_res.copy_(unique_tensor)
     return tensor_res
+    
+def L2distance(dist_matrix):
+    try:
+        return np.sqrt(np.sum(np.square(dist_matrix), axis=1))
+    except:
+        return np.sqrt(np.sum(np.square(dist_matrix)))    
 
+def argmin_top3(array):     # todo
+    '''
+        return argmin of the least 3 elements in asecending order.
+    '''
+#    pass  # note could return None, elements could be None
+    
+    if len(array) == 0:   
+        return (None)
+        
+    argmin_res = [None for _ in range(3)]
+    for i in range(len(array)):
+        if argmin_res[0] is None or array[i] < array[argmin_res[0]]:
+            argmin_res[2] = argmin_res[1]
+            argmin_res[1] = argmin_res[0]
+            argmin_res[0] = i
+        elif argmin_res[1] is None or array[i] < array[argmin_res[1]]:
+            argmin_res[2] = argmin_res[1]
+            argmin_res[1] = i
+        elif argmin_res[2] is None or array[i] < array[argmin_res[2]]:
+            argmin_res[2] = i
+
+    return tuple(argmin_res)
+    
+    
+def assign(dist_map, pair_dist, pair_velocity, pre_num, post_num):
+
+    cost_mat = np.full((pre_num, post_num), 100, dtype='float32')
+    for i in range(pre_num):
+        for j, x in enumerate(dist_map[i]):
+            if x is None:
+                continue
+            if pair_velocity[i][j] is None:
+                cost_mat[i, x] = pair_dist[i][j] + 10
+            if pair_velocity[i][j] is not None:
+                cost_mat[i, x] = pair_dist[i][j] + pair_velocity[i][j]
+                
+    assign_result_holder = sk_assignment.linear_assignment(cost_mat)
+    assign_result = dict([i, None] for i in range(pre_num))
+    for i in range(assign_result_holder.shape[0]):
+        pre, post = assign_result_holder[i]
+        if cost_mat[pre, post] < 20:       # meaning both distance and velocity pair requirment are not met
+            assign_result[pre] = post
+    
+    return assign_result
+    
+    
+def pair_position(position_pre, position_post, threshold_scale=0.3, id_list=None):
+
+    num_id_pre = position_pre.shape[0]
+    num_id_post = position_post.shape[0]
+    
+    center_pre = position_pre[:, 0:2]
+    center_post = position_post[:, 0:2]
+
+    center_pre_t = np.repeat(center_pre, repeats=num_id_post, axis=0)
+    center_post_t = np.tile(center_post, (num_id_pre, 1))
+    
+    dist = center_pre_t - center_post_t
+    id_sizes = L2distance(position_pre[:,:2]-position_pre[:,2:4])
+    
+    dist_map_ = [argmin_top3(L2distance(dist[i: i+num_id_post]))         # get the top3 minimum index
+                    for i in range(0,center_pre_t.shape[0],num_id_post)]
+    
+    pair_dist = []
+    pair_velocity = []
+    dist_map = []
+    velocity_map = []
+    for i in range(num_id_pre):
+        tmp_dist = [L2distance(center_pre[i]-center_post[x]) for x in dist_map_[i] if x is not None ]
+        pair_dist.append(tuple(map(lambda x: x/id_sizes[i] if x<threshold_scale*id_sizes[i] else None, tmp_dist))) 
+        dist_map.append(tuple(x for j,x in enumerate(dist_map_[i]) if pair_dist[i][j] is not None))    # within threshold
+        
+        if id_list is not None:     # initial id pair doesn't take velocity into account
+            tmp_velocity = [(center_post[j] - id_list[i].pos_pre)/id_list[i].interval for j in dist_map[i]]
+            pair_velocity_ = list(map(lambda x: angle_between(x, id_list[i].v)/(np.pi/4) 
+                                                    if id_list[i].v is not None and angle_between(x, id_list[i].v)<np.pi/2 else None, 
+                                      tmp_velocity))
+                                           
+            for x in range(len(pair_velocity_)):
+                if L2distance(tmp_velocity[x])<id_sizes[i]*0.015*threshold_scale:
+                    if id_list[i].v is not None and L2distance(id_list[i].v)<id_sizes[i]*0.045*threshold_scale:
+                        pair_velocity_[x] = 0
+                    elif id_list[i].v is None:
+                        pair_velocity_[x] = 0     
+                                
+            pair_velocity.append(tuple(pair_velocity_))
+    if id_list is not None:
+        pos_map = assign(dist_map, pair_dist, pair_velocity, num_id_pre, num_id_post)
+    else:
+        # initial ids
+        pos_map = assign(dist_map, pair_dist, np.full((num_id_pre, num_id_post), None), num_id_pre, num_id_post)
+    
+    if all(pos_map[i] is None for i in pos_map):
+        return pos_map, False
+    else:
+        return pos_map, True    
+
+    
+def unit_vector(vector):
+    return vector / np.linalg.norm(vector)
+
+def angle_between(v1, v2):
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+    
+def write_identity(frame, id_list, candidate_list):
+
+    for i in range(len(id_list)):
+        c1 = (id_list[i].upper_left[0].astype('int'), id_list[i].upper_left[1].astype('int'))
+        c2 = (id_list[i].lower_right[0].astype('int'), id_list[i].lower_right[1].astype('int'))
+        label = "{0}:{1}".format('Person', id_list[i].name)
+        color = id_list[i].color
+        
+        cv2.rectangle(frame, c1, c2, color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(frame, c1, c2, color, -1)
+        cv2.putText(frame, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
+        
+        for h in range(len(id_list[i].hist)):
+            cv2.circle(frame, id_list[i].hist[h], 3, color, -1)
+        cv2.circle(frame, tuple(id_list[i].pos.astype('int')), 3, color, -1)
+        
+    for i in range(len(candidate_list)):
+        c1 = (candidate_list[i].upper_left[0].astype('int'), candidate_list[i].upper_left[1].astype('int'))
+        c2 = (candidate_list[i].lower_right[0].astype('int'), candidate_list[i].lower_right[1].astype('int'))
+        label = "{0}:{1}".format('Candidate', candidate_list[i].name)
+        color = (255, 255, 255)
+        cv2.rectangle(frame, c1, c2,color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(frame, c1, c2, color, -1)
+        cv2.putText(frame, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
+        
+    return frame
+    
+    
 def write_results(prediction, confidence, num_classes, nms = True, nms_conf = 0.4):
     conf_mask = (prediction[:,:,4] > confidence).float().unsqueeze(2)
     prediction = prediction*conf_mask
