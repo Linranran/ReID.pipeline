@@ -9,6 +9,9 @@ from preprocess import prep_image
 from kalman import kalman_prediction, kalman_update
 from idclass import identity
 
+import tensorflow as tf
+from util import appearance_modeler
+
 import pdb
 
 def arg_parse():
@@ -16,7 +19,6 @@ def arg_parse():
     Parse arguements to the tracking module
     
     """
-    
     parser = argparse.ArgumentParser(description='Tracking Module')
    
     parser.add_argument("--images", dest = 'images', help = 
@@ -25,7 +27,7 @@ def arg_parse():
     parser.add_argument("--det", dest = 'det', help = 
                         "Image / Directory to store detections to",
                         default = "det", type = str)
-    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.5)
+    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.9)
     parser.add_argument("--nms_thresh", dest = "nms_thresh", help = "NMS Threshhold", default = 0.4)
     parser.add_argument("--cfg", dest = 'cfgfile', help = 
                         "Config file",
@@ -36,19 +38,26 @@ def arg_parse():
     parser.add_argument("--reso", dest = 'reso', help = 
                         "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
                         default = "416", type = str)
-    parser.add_argument("--scales", dest = "scales", help = "Scales to use for detection",
-                        default = "1,2,3", type = str)
+    parser.add_argument("--trace", type=str2bool, nargs='?', const=True, default=True,
+                        help="If plot pedestrian traces.")
+                        
     parser.add_argument("--interval", dest = "interval", help = "Number of frames to skip before detection",
                         default = 10)
     parser.add_argument("--Q", dest = "Q", help = "Process noise variance",
                         default = 1)
     parser.add_argument("--R", dest = "R", help = "Measurement uncertainty scale factor",
                         default = 0.4)
+                        
+                        
+    parser.add_argument("--scales", dest = "scales", help = "Scales to use for detection",
+                        default = "1,2,3", type = str)
+                        
+    
     
     return parser.parse_args()
 
             
-def __show_results__(id_list, candidate_list, ogl):
+def __show_results__(id_list, candidate_list, ogl, trace_flag=True):
     _img_ = ogl.copy()
     
     for i in range(len(id_list)):
@@ -82,9 +91,12 @@ def __show_results__(id_list, candidate_list, ogl):
 
 if __name__ ==  '__main__':
     np.set_printoptions(suppress=True)
+    encoder = appearance_modeler(batch_size=64)
     args = arg_parse()
     images = args.images
     interval = args.interval
+    identity.interval = interval
+    identity.max_v = identity.interval / 60 * 1
     R = args.R
     Q = args.Q
     inp_dim = int(args.reso)
@@ -123,13 +135,14 @@ if __name__ ==  '__main__':
     print('Computing initial identities...')
     
     while True:
-        frame, ogl, dim = prep_image(imlist[offset], inp_dim)
-        position_pre = measure(frame, dim)[:, 1:5].cpu().numpy()
+        frame_pre, ogl_pre, dim = prep_image(imlist[offset], inp_dim)
+        position_pre = measure(frame_pre, dim)[:, 1:5].cpu().numpy()
+        bbx = position_pre.copy()
         position_pre[:, 0] = [(x[0]+x[2])/2 for x in position_pre]
         position_pre[:, 1] = [(x[1]+x[3])/2 for x in position_pre]
         
-        frame, ogl, dim = prep_image(imlist[offset + interval], inp_dim)
-        position_post = measure(frame, dim)[:, 1:5].cpu().numpy()
+        frame_post, ogl_post, dim = prep_image(imlist[offset + interval], inp_dim)
+        position_post = measure(frame_post, dim)[:, 1:5].cpu().numpy()
         position_post[:, 0] = [(x[0]+x[2])/2 for x in position_post]
         position_post[:, 1] = [(x[1]+x[3])/2 for x in position_post]
         
@@ -152,12 +165,17 @@ if __name__ ==  '__main__':
             velocity[i, 1] = (position_post[pos_map[i], 1] - position_pre[i, 1]) / interval
         velocity[i, 2:4] = position_pre[i, :2]
     
+    ogl_rgb = cv2.cvtColor(ogl_pre, cv2.COLOR_BGR2RGB)
+    features = encoder(ogl_rgb, bbx.astype('int64'))
+    
     for i in range(len(pos_map)):
         id_list[i].pos = velocity[i, 2:4]
         id_list[i].pos_pre = id_list[i].pos.copy()
         if any(velocity[i, 0:2]!=0):
             id_list[i].v = velocity[i, 0:2]
         id_list[i].lower_right = position_pre[i, 2:4]
+        id_list[i].feature_list.append(features[i])
+        
     
     print('Initial identities and velocities resolved...')    
                           
@@ -179,13 +197,31 @@ if __name__ ==  '__main__':
         process_start = time.time()
         id_list, candidate_list = kalman_prediction(id_list, candidate_list, Q)   
         
+        
+        
         if detect_flag:
-            measured_position = measure(frame, dim)[:, 1:5].cpu().numpy()
-            measured_position[:, 0] = [(x[0]+x[2])/2 for x in measured_position]
-            measured_position[:, 1] = [(x[1]+x[3])/2 for x in measured_position]
-            
-            id_list, candidate_list = kalman_update(id_list, candidate_list, measured_position, R)    
-            inter = 0
+#            if idx >=159:
+#                pdb.set_trace()
+        
+            measured_position = measure(frame, dim)
+            if not (isinstance(measured_position, int) and measured_position == 0):  # valid detection
+                measured_position = measured_position[:, 1:5].cpu().numpy()
+                bbx = np.zeros(measured_position.shape)
+                bbx = measured_position.copy()
+                measured_position[:, 0] = [(x[0]+x[2])/2 for x in measured_position]
+                measured_position[:, 1] = [(x[1]+x[3])/2 for x in measured_position]
+                
+                # ----------------------------------------------------------------
+                # measured_position[:, 0]: center x; measured_position[:, 1]: center y
+                # measured_position[:, 2]: lower_right x; measured_position[:, 3]: lower_right y
+                # ----------------------------------------------------------------
+#                ogl_rgb = cv2.cvtColor(ogl, cv2.COLOR_BGR2RGB)
+                features = encoder(ogl, bbx.astype('int64'))
+                id_list, candidate_list = kalman_update(id_list, 
+                                                        candidate_list, 
+                                                        measured_position, 
+                                                        features, R)    
+                inter = 0
             
         if idx % 20 == 0:
             [id_list[x].add_hist() for x in range(len(id_list))]
@@ -200,7 +236,7 @@ if __name__ ==  '__main__':
             
         
         io_start = time.time()
-        write_identity(ogl, id_list, candidate_list)
+        write_identity(ogl, id_list, candidate_list, args.trace)
         det_names = pd.Series(imlist[idx]).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))[0]
         cv2.imwrite(det_names, ogl)
         io_time += time.time() - io_start
@@ -211,7 +247,7 @@ if __name__ ==  '__main__':
         detect_flag = False
     
         print("{0:20s} finished in {1:6.3f} seconds; IO took {2:6.3f} seconds".format(imlist[idx].split("/")[-1], end - start, io_time))
-        print("Process speed without IO: {0:6.3f} per seconds.".format(fps))
+        print("Processing speed without IO: {0:6.3f} frames per seconds.".format(fps))
         print("{0:20s} {1:s}".format("Identity Detected:", " ".join(objs)))
         print("----------------------------------------------------------")
 

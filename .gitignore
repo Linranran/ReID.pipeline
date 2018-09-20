@@ -102,3 +102,4 @@ ENV/
 
 # weights files
 yolov3.weights
+mars-small128.pb

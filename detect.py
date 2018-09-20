@@ -16,39 +16,40 @@ import random
 import pickle as pkl
 import itertools
 import matplotlib.pyplot as plt
+from track import arg_parse
 
 
-def arg_parse():
-    """
-    Parse arguements to the detect module
-    
-    """
-    
-    
-    parser = argparse.ArgumentParser(description='YOLO v3 Detection Module')
-   
-    parser.add_argument("--images", dest = 'images', help = 
-                        "Image / Directory containing images to perform detection upon",
-                        default = "imgs", type = str)
-    parser.add_argument("--det", dest = 'det', help = 
-                        "Image / Directory to store detections to",
-                        default = "det", type = str)
-    parser.add_argument("--bs", dest = "bs", help = "Batch size", default = 1)
-    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.7)
-    parser.add_argument("--nms_thresh", dest = "nms_thresh", help = "NMS Threshhold", default = 0.4)
-    parser.add_argument("--cfg", dest = 'cfgfile', help = 
-                        "Config file",
-                        default = "cfg/yolov3.cfg", type = str)
-    parser.add_argument("--weights", dest = 'weightsfile', help = 
-                        "weightsfile",
-                        default = "yolov3.weights", type = str)
-    parser.add_argument("--reso", dest = 'reso', help = 
-                        "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
-                        default = "416", type = str)
-    parser.add_argument("--scales", dest = "scales", help = "Scales to use for detection",
-                        default = "1,2,3", type = str)
-    
-    return parser.parse_args()
+#def arg_parse():
+#    """
+#    Parse arguements to the detect module
+#    
+#    """
+#    
+#    
+#    parser = argparse.ArgumentParser(description='YOLO v3 Detection Module')
+#   
+#    parser.add_argument("--images", dest = 'images', help = 
+#                        "Image / Directory containing images to perform detection upon",
+#                        default = "imgs", type = str)
+#    parser.add_argument("--det", dest = 'det', help = 
+#                        "Image / Directory to store detections to",
+#                        default = "det", type = str)
+#    parser.add_argument("--bs", dest = "bs", help = "Batch size", default = 1)
+#    parser.add_argument("--confidence", dest = "confidence", help = "Object Confidence to filter predictions", default = 0.7)
+#    parser.add_argument("--nms_thresh", dest = "nms_thresh", help = "NMS Threshhold", default = 0.4)
+#    parser.add_argument("--cfg", dest = 'cfgfile', help = 
+#                        "Config file",
+#                        default = "cfg/yolov3.cfg", type = str)
+#    parser.add_argument("--weights", dest = 'weightsfile', help = 
+#                        "weightsfile",
+#                        default = "yolov3.weights", type = str)
+#    parser.add_argument("--reso", dest = 'reso', help = 
+#                        "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
+#                        default = "416", type = str)
+#    parser.add_argument("--scales", dest = "scales", help = "Scales to use for detection",
+#                        default = "1,2,3", type = str)
+#    
+#    return parser.parse_args()
     
     
 def measure(img, dim):
@@ -60,6 +61,10 @@ def measure(img, dim):
     with torch.no_grad():   
         output = model(img, CUDA)
     output = write_results_person(output, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+    
+    if isinstance(output, int) and output == 0:
+        return 0
+    
     im_dim = im_dim.repeat(output.size(0), 1)
     scaling_factor = torch.min(inp_dim/im_dim,1)[0].view(-1,1)
     
@@ -97,6 +102,7 @@ if CUDA:
 model.eval()
 
 if __name__ ==  '__main__':
+    
     images = args.images
     inp_dim = int(args.reso)
     model.net_info["height"] = args.reso
@@ -104,7 +110,6 @@ if __name__ ==  '__main__':
 
     start = 0
 
-    read_dir = time.time()
     #Detection phase
     try:
         imlist = [osp.join(osp.realpath('.'), images, img) for img in os.listdir(images) if os.path.splitext(img)[1] == '.png' or os.path.splitext(img)[1] =='.jpeg' or os.path.splitext(img)[1] =='.jpg']
@@ -143,13 +148,19 @@ if __name__ ==  '__main__':
     start_det_loop = time.time()
     
     objs = {}
+    
+    fps = 0
+    fps_idx = 0
 
     for ibatch in range(num_batches):
         
         #load the image 
         start = time.time()
-        
+        io_time_start = time.time()
         batches = list(map(prep_image, im_batches[ibatch], [inp_dim for x in range(len(im_batches[ibatch]))]))
+        io_time = time.time() - io_time_start
+        
+        process_time_start = time.time()
         batch = [x[0] for x in batches]
         orig_ims = [x[1] for x in batches]
         im_dim_list = [x[2] for x in batches]
@@ -190,15 +201,7 @@ if __name__ ==  '__main__':
             continue
 
         end = time.time()
-        
 
-        for im_num, image in enumerate(imlist[i*batch_size: min((i +  1)*batch_size, len(imlist))]):
-            objs = [classes[int(x[-1])] for x in prediction if int(x[0]) == im_num]
-            print("{0:20s} predicted in {1:6.3f} seconds".format(image.split("/")[-1], (end - start)/batch_size))
-            print("{0:20s} {1:s}".format("Objects Detected:", " ".join(objs)))
-            print("----------------------------------------------------------")
-
-        
         if CUDA:
             torch.cuda.synchronize()
 
@@ -216,7 +219,11 @@ if __name__ ==  '__main__':
             prediction[idx, [2,4]] = torch.clamp(prediction[idx, [2,4]], 0.0, im_dim_list[idx,1])
 
         
+        process_time = time.time() - process_time_start
+        
+        io_time_start = time.time()
         colors = pkl.load(open("pallete", "rb"))
+        io_time += time.time() - io_time_start
         
         def write(x, orig):
             c1 = tuple(x[1:3].int())
@@ -233,12 +240,31 @@ if __name__ ==  '__main__':
             cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
             return img
         
+        
+        io_time_start = time.time()
         list(map(lambda x: write(x, orig_ims), prediction))
         
         det_names = pd.Series(im_batches[ibatch]).apply(lambda x: "{}/det_{}".format(args.det,x.split("/")[-1]))
         list(map(cv2.imwrite, det_names, orig_ims))
-    
+        io_time += time.time() - io_time_start
         i += 1
+        
+        
+        fps_idx += 1
+        if fps_idx >= 20:
+            fps = fps_idx / process_time
+            process_time = 0
+            fps_idx = 0
+        
+        
+        for im_num, image in enumerate(imlist[i*batch_size: min((i +  1)*batch_size, len(imlist))]):
+            objs = [classes[int(x[-1])] for x in prediction if int(x[0]) == im_num]
+            print("{0:20s} predicted in {1:6.3f} seconds; IO took {2:6.3f} seconds".format(image.split("/")[-1], (end - start)/batch_size, io_time))
+            
+            print("Processing speed without IO: {0:6.3f} frames per seconds.".format(fps))
+            print("{0:20s} {1:s}".format("Objects Detected:", " ".join(objs)))
+            print("----------------------------------------------------------")
+
 
     
     end = time.time()
@@ -247,12 +273,7 @@ if __name__ ==  '__main__':
     print("SUMMARY")
     print("----------------------------------------------------------")
     print("{:25s}: {}".format("Task", "Time Taken (in seconds)"))
-#    print()
-#    print("{:25s}: {:2.3f}".format("Reading addresses", load_batch - read_dir))
-#    print("{:25s}: {:2.3f}".format("Loading batch", start_det_loop - load_batch))
-#    print("{:25s}: {:2.3f}".format("Detection (" + str(len(imlist)) +  " images)", output_recast - start_det_loop))
-#    print("{:25s}: {:2.3f}".format("Output Processing", class_load - output_recast))
-#    print("{:25s}: {:2.3f}".format("Drawing Boxes", end - draw))
+    
     print("{:25s}: {:2.3f}".format("Average time_per_img", (end - load_batch)/len(imlist)))
     print("----------------------------------------------------------")
 
